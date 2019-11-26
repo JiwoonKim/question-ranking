@@ -3,6 +3,44 @@ let stompClient = null;
 let paths = window.location.pathname.split("/");
 let seminarId = paths[paths.length - 1];
 
+// 별 아이콘에 색깔 변경 및 like 개수 변경 기능 추가
+const addChangeLike = (star) => {
+    const $starImg = star;
+
+    // 웹소켓을 통해 서버로 보낼 JSON 메세지 작성
+    const $commentDiv = $starImg.parent().parent();
+    const $commentId = $commentDiv[0].dataset.commentid;
+    const message = JSON.stringify({'seminarId': seminarId, 'commentId': $commentId});
+    
+    // like를 의미하는 별 아이콘 클릭 시, 색깔 변경 및 like 개수 업데이트
+    $starImg.click(() => {
+        // like를 선택했을 경우,
+        if ($starImg.hasClass('yellow-star')) {
+            // 인터랙션 실행
+            $starImg.attr('src', '/mini_QR/images/star_interaction_final.gif');
+            setTimeout(() => {
+                $starImg.attr('src', '/mini_QR/images/one_star.png');
+            }, 300);
+            $starImg.toggleClass('yellow-star');
+
+            // 웹소켓을 통해 서버로 like 상태 변경 전달
+            console.log("like 합니다: ", message);
+            stompClient.send("/like", {}, message);
+        } 
+        // unlike를 선택했을 경우,
+        else {
+            // 인터랙션 실행
+            $starImg.attr('src', '/mini_QR/images/white-star.png');
+            $starImg.toggleClass('yellow-star');
+
+            // 웹소켓을 통해 서버로 like 상태 변경 전달
+            console.log("unlike 합니다: ", message);
+            stompClient.send("/unlike", {}, message);
+        }
+    });
+};
+
+
 // 색깔 버튼 클릭 시, 배경 색깔 변경
 const changeBackgroundColor = () => {
     const $yellowButton = $('.yellow-button');
@@ -69,37 +107,40 @@ const changeBackgroundColor = () => {
     });
 };
 
-// 별 아이콘에 색깔 변경 및 like 개수 변경 기능 추가
-const addChangeLike = (star, likes) => {
-    const $starImg = star;
-    let counterLikedNumber = likes;
-
-    // like 개수 변경 부분만 웹소켓 subscribe으로 옮기기
-    
-    // like를 의미하는 별 아이콘 클릭 시, 색깔 변경 및 like 개수 업데이트
-    $starImg.click(() => {
-        if ($starImg.hasClass('yellow-star')) {
-            $starImg.attr('src', '/mini_QR/images/Star_interaction_' + Math.floor(Math.random() * 6) + '.gif');
-            setTimeout(() => {
-                $starImg.attr('src', '/mini_QR/images/one_star.png');
-            }, 2800);
-            $starImg.toggleClass('yellow-star');
-            counterLikedNumber++;
-            $starImg.next().text(counterLikedNumber);
-        } else {
-            $starImg.attr('src', '/mini_QR/images/white-star.png');
-            $starImg.toggleClass('yellow-star');
-            counterLikedNumber--;
-            $starImg.next().text(counterLikedNumber);
+// 랭킹 순위 질문 유무에 따라 버튼 활성화
+const questionRankingEnable = (currentWidth) => {
+    if ( currentWidth <= 425 ) { // 모바일로 접속했을 경우
+        // 랭킹 순위에 아무 질문이 없으면 버튼 비활성화
+        if ($('.ranking-text-rank-1').text() === '') {
+            $('.mobile-circle-button').hide();
+            $('.mobile-circle-button-dim').show();
+            $('.circle-button').hide();
+            $('.circle-button-dim').hide();
         }
-
-        // 웹소켓을 통해 서버로 like 상태 변경 전달
-        const commentId = 12;
-        const message = JSON.stringify({'seminarId': seminarId, 'commentId': commentId});
-        console.log("데이터 전송합니다: ", message);
-        stompClient.send("/updates", {}, message);
-    });
-};
+        // 랭킹 순위에 질문이 있으면 버튼 활성화
+        else {
+            $('.mobile-circle-button').show();
+            $('.mobile-circle-button-dim').hide();
+            $('.circle-button').hide();
+            $('.circle-button-dim').hide();
+        }
+    } else { // 웹으로 접속했을 경우
+        // 랭킹 순위에 아무 질문이 없으면 버튼 비활성화
+        if ($('.ranking-text-rank-1').text() === '') {
+            $('.mobile-circle-button').hide();
+            $('.mobile-circle-button-dim').hide();
+            $('.circle-button').hide();
+            $('.circle-button-dim').show();
+        }
+        // 랭킹 순위에 질문이 있으면 버튼 활성화
+        else {
+            $('.mobile-circle-button').hide();
+            $('.mobile-circle-button-dim').hide();
+            $('.circle-button').show();
+            $('.circle-button-dim').hide();
+        }
+    }
+}
 
 // 웹소켓 연결하기
 const connectWebSockets = () => {
@@ -108,32 +149,35 @@ const connectWebSockets = () => {
     stompClient.connect({}, (frame) => {
         console.log('소켓 연결되었습니다!');
 
-        // 서버로부터 STOMP 메세지를 전달받으면, 새 질문 업데이트
+        // 서버로부터 STOMP 메세지를 전달받으면, 콘텐츠 업데이트
         stompClient.subscribe(`/subscribe/seminar/${seminarId}`, (res) => {
 
             console.log("메세지 도착: ", res);
             // JSON response 파싱
             const data = JSON.parse(res.body);
             console.log("메세지 파싱: ", data);
-            postNewQuestion(data);
-            
+
+            // 메세지가 종류가 새 질문 업데이트이면, 
+            if (data.type === "comment") {
+                // 새 질문 화면에 표시
+                console.log("질문을 업데이트...")
+                postNewQuestion(data);
+            } 
+            // 메세지가 like로 상태 업데이트면,
+            else if (data.type === "like" || data.type === "unlike") {
+                // 해당 질문의 like 개수 변경
+                console.log("like 개수를 업데이트...")
+                updateLikeCount(data);
+            }
+            // 메세지가 랭킹 업데이트면,
+            else if (data.type === "ranking") {
+                console.log("랭킹 순위 업데이트...")
+                updateRanking(data);
+
+                // 랭킹 순위 질문 유무에 따라 버튼 활성화
+                questionRankingEnable(Math.max(document.documentElement.clientWidth, window.innerWidth || 0));
+            }
         });
-
-        // 서버로부터 like 업데이트 STOMP 메세지를 전달받으면,
-        stompClient.subscribe('/like', (res) => { 
-            console.log("like 업데이트: ", res);
-            // 
-        });
-
-        // 서버로부터 like 업데이트 STOMP 메세지를 전달받으면,
-        stompClient.subscribe('/unlike', (res) => { 
-            console.log("unlike 업데이트: ", res);
-            // 
-        });
-
-        // 랭킹 순위 content와 like 수 바로 변경       }
-        // html/jsp 파일 랭킹 순위에 있는 contents와 like 수 default로 설정
-
     });
 };
 
@@ -160,7 +204,7 @@ const copyURL = () => {
         setTimeout(() => {
             $('.url-copy-animation').hide();
             $('.url-copy-button').show();
-        }, 4500);
+        }, 500);
     });
 };
 
@@ -185,16 +229,17 @@ const enableOrDisableSendButton = () => {
 
 // 새 질문 업데이트
 const postNewQuestion = (message) => {
-    console.log("새 질문 올립니다")
-    const commentText = message.content;
+    const comment = message.comment;
+    const commentText = comment.content;
+    const commentId = comment.commentId;
+
     const $ul = $('ul');
     const $inputButton = $('.input-send');
     const $mobileInputButton = $('.mobile-input-send');
-    const $beforeQuestionInput = $('.before-question-contents')
     const $textarea = $('textarea');
 
     // 새 질문 올리기
-    $ul.append('<div><ol></ol><span></span></div>');
+    $ul.append(`<div data-commentId=${commentId}><ol></ol><span class="comment-likes"></span></div>`);
     $('ol:last').append(commentText);
     $('span:last').append('<img src="/mini_QR/images/white-star.png" class="yellow-star" alt="Button to recommend questions"><div>0</div>')
     $('span:last > img').addClass('white-star');
@@ -204,11 +249,22 @@ const postNewQuestion = (message) => {
     $textarea.val('')
     $inputButton.addClass('input-send-dim');
     $mobileInputButton.removeClass('mobile-input-send-dim');
-    $beforeQuestionInput.hide();
 
     // like 별 아이콘 상태 변경 기능 추가
     const $img = $('span:last > img');
-    addChangeLike($img, 0);
+    addChangeLike($img);
+
+    // 질문이 존재하면 '질문을 입력해 주세요' 숨김
+    hideBeforeQuestionContents();
+};
+
+// 질문이 존재하면 '질문을 입력해 주세요' 숨김
+const hideBeforeQuestionContents = () => {
+    const $BeforeQuestionContents = $('.before-question-contents');
+
+    if ( $('ul > div').length > 0 ) {
+        $BeforeQuestionContents.hide()
+    }
 };
 
 // 웹소켓을 통해 서버에게 새 질문 전달
@@ -225,32 +281,28 @@ const showOrFoldRanking = (foldedHeight) => {
     const $questionRankingMore = $('.Question-ranking-more');
     const $questionContents = $('.question-contents');
     const $foldButton = $('.fold-button');
-    const $moreButton = $('.more-button');
+    const $circleButton = $('.circle-button');
 
     $questionRankingMore.hide();
     $foldButton.hide();
-
-    if ($('.ranking-text-rank-1').text() === '') {
-        $('.circle-button').attr('src', '<%=request.getContextPath() %>/images/more-button-dim.png');
-    } else {
-        $moreButton.click(() => {
-            $questionRanking.hide();
-            $questionRankingMore.show();
-            $foldButton.show();
-            $questionContents.css({
-                'height': parseInt(Math.max(document.documentElement.clientHeight, window.innerHeight || 0)-parseInt($('.Question-ranking-more').css('height').replace('px', ''))-172)+"px"
-            });
-        });
     
-        $foldButton.click(() => {
-            $questionRanking.show();
-            $questionRankingMore.hide();
-            $foldButton.hide();
-            $questionContents.css({
-                'height': foldedHeight,
-            });
+    $circleButton.click(() => {
+        $questionRanking.hide();
+        $questionRankingMore.show();
+        $foldButton.show();
+        $questionContents.css({
+            'height': parseInt(Math.max(document.documentElement.clientHeight, window.innerHeight || 0)-parseInt($('.Question-ranking-more').css('height').replace('px', ''))-172)+"px"
         });
-    }
+    });
+
+    $foldButton.click(() => {
+        $questionRanking.show();
+        $questionRankingMore.hide();
+        $foldButton.hide();
+        $questionContents.css({
+            'height': foldedHeight,
+        });
+    });
 };
 
 // 모바일 화면에서 랭킹 버튼 클릭 시, 랭킹 순위 공개 및 숨김
@@ -259,27 +311,23 @@ const showOrFoldRankingMobile = (foldedHeight, strechedHeight) => {
     const $questionRankingMore = $('.Question-ranking-more');
     const $questionContents = $('.question-contents');
     const $circleButton = $('.mobile-circle-button');
-    const $secondCircleButton = $('.mobile-circle-button-2')
+    const $secondCircleButton = $('.mobile-circle-button-2');
 
-    if ($('.ranking-text-rank-1').text() === '') {
-        $('.mobile-circle-button').attr('src', '<%=request.getContextPath() %>/images/more-button-dim.png');
-    } else {
-        $circleButton.click(() => {
-            $questionRanking.hide();
-            $questionRankingMore.show();
-            $questionContents.css({
-                'height': strechedHeight,
-            });
+    $circleButton.click(() => {
+        $questionRanking.hide();
+        $questionRankingMore.show();
+        $questionContents.css({
+            'height': strechedHeight,
         });
-    
-        $secondCircleButton.click(() => {
-            $questionRanking.show();
-            $questionRankingMore.hide();
-            $questionContents.css({
-                'height': foldedHeight,
-            });
+    });
+
+    $secondCircleButton.click(() => {
+        $questionRanking.show();
+        $questionRankingMore.hide();
+        $questionContents.css({
+            'height': foldedHeight,
         });
-    }
+    });
 };
 
 // 랭킹 Top 3 질문 내의 More 버튼 클릭 시, 글 공개 및 숨김
@@ -417,11 +465,39 @@ const showQRcode = () => {
     });
 };
 
+// 웹소켓으로 받은 like 개수를 업데이트
+const updateLikeCount = (message) => {
+    const commentId = message.comment.commentId;
+    const likeCount = message.comment.likeCount;
+
+    const comment = document.querySelector(`[data-commentId="${commentId}"]`);
+    const likeDiv = comment.lastElementChild.lastElementChild;
+    likeDiv.textContent = likeCount;
+}
+
+// 웹소켓으로 받은 랭킹 순위 업데이트
+const updateRanking = (message) => {
+    const commentList = message.commentList;
+    const likeNumDivList = document.querySelectorAll(".star-and-number");
+
+    // 랭킹 리스트에 포함된 질문 업데이트
+    commentList.forEach((comment, i) => {
+        // 질문 콘텐츠 업데이트 
+        const commentDiv = document.querySelector(`.ranking-text-rank-${i + 1}`);
+        commentDiv.textContent = comment.content;
+
+        // 질문 like 개수 업데이트
+        const likeNumDiv = likeNumDivList[i].lastElementChild;
+        likeNumDiv.textContent = comment.likeCount;
+    });
+}
+
 // 웹소켓으로 새 질문 (JSON) 서버로 전달
 const uploadNewQuestion = () => {
     const $inputButton = $('.input-send');
     const $mobileInputButton = $('.mobile-input-send');
     const $newQuestionText = $('textarea');
+    const currentWidth = Math.max(document.documentElement.clientWidth, window.innerWidth || 0);
 
     // send 버튼을 누르면, 서버에게 새 질문 전달
     $inputButton.click(function() {
@@ -433,9 +509,9 @@ const uploadNewQuestion = () => {
     });
     $mobileInputButton.click(function() {
         if ($mobileInputButton.hasClass('mobile-input-send-dim')) {
-            console.log('질문을 입력하세요.');
-        } else {
             sendNewQuestion($newQuestionText);
+        } else {
+            console.log('질문을 입력하세요.');
         }
     });
 };
@@ -470,11 +546,13 @@ $(function () {
     } else {
         $('.question-contents').css( "height", mainFoldedHeight );
     }
-
+    
     // 모든 메세지 별 아이콘에 업데이트 기능 추가
-    // const img = $('span:last > img');
-    // const likes = 
-    // addChangeLike(img, likes);
+    const $likeList = $('.comment-likes');
+    $likeList.each(function() {
+        const $img = $(this).find('img')  
+        addChangeLike($img);
+    });
 
     // URL 복사 기능
     copyURL();
@@ -484,13 +562,6 @@ $(function () {
     
     // QR 코드 모달로 띄우기 기능
     showQRcode();
-
-    // 랭킹 순위 (Top 3) 질문 공개 및 숨김 기능
-    showOrFoldRanking(mainFoldedHeight);
-    showOrFoldRankingMobile(mobileFoldedHeight, mobileStrechedHeight);
-
-    // 랭킹 순위 내 질문의 글 공개 및 숨김 기능
-    showOrFoldRankingText();
 
     // 배경 색깔 변경 기능 
     changeBackgroundColor();
@@ -503,4 +574,17 @@ $(function () {
 
     // 새 질문 등록
     uploadNewQuestion();
+
+    // 질문 존재 유무에 따라 안내 문구 숨김 기능
+    hideBeforeQuestionContents();
+
+    // 랭킹 순위 (Top 3) 질문 공개 및 숨김 기능
+    showOrFoldRanking(mainFoldedHeight);
+    showOrFoldRankingMobile(mobileFoldedHeight, mobileStrechedHeight);
+
+    // 랭킹 순위 내 질문의 글 공개 및 숨김 기능
+    showOrFoldRankingText();
+
+    // 랭킹 순위 질문 유무에 따라 버튼 활성화
+    questionRankingEnable(currentWidth);
 });
